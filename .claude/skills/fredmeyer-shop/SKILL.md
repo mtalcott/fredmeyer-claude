@@ -198,11 +198,19 @@ The cart ID is session-specific — discover it fresh each run.
    - Run snippet 4 (recent network resources) to list candidate `/api/`, `/atlas/`, or `/cart` requests.
    - Use `chrome-devtools:list_network_requests` to inspect POSTs that fired after the click. Save the URL, headers, and body shape as `cart_api`.
 
-### 4c. Add remaining items via cart-API fetch
+### 4c. Add items category by category (preserves preview order)
 
-With `cart_api` known, replace the cart in a single fetch (snippet 5 in `references/cart-snippets.md`) — no further navigation required. Items go in as `{upc, qty}` pairs. Every `upc` must be a real `gtin13` from the CSV or a Phase 4d search result — never a guessed value.
+The cart should display items in the **same category order the user previewed** in Phase 2/3 (Protein → Dairy/Alternatives → Fruit → … → Other). To achieve this, add items **one category at a time, in that display order**, rather than in one undifferentiated batch.
 
-If the cart API cannot be discovered (no clear POST captured), fall back to per-item navigate + DOM add (snippets 2 + 3) — still no snapshots.
+With `cart_api` known:
+
+1. Group the final order's items by `category` and order the groups by the Phase 2 category display order. Within each category, keep the Phase 2 row order.
+2. Add the categories **sequentially**, one cart call per category (snippet 5 in `references/cart-snippets.md`), waiting for each to return before starting the next so the categories get distinct, increasing add-times. Snippet 5 takes the **cumulative** ordered item list (all categories added so far, in order) so the cart array stays sorted regardless of whether Fred Meyer renders the cart by array order or by add-time.
+3. Items go in as `{upc, qty}` pairs. Every `upc` must be a real `gtin13` from the CSV or a Phase 4d search result — never a guessed value.
+
+**Iteration direction — confirm once per environment in 4e:** if the cart shows the **most recently added item at the top**, iterate categories in **reverse** display order (add Other first, Protein last) so the first display category ends up on top; if it shows newest at the **bottom**, iterate in forward display order. Default to forward; if 4e shows the order inverted, re-run with the categories reversed.
+
+If the cart API cannot be discovered (no clear POST captured), fall back to per-item navigate + DOM add (snippets 2 + 3), still visiting items grouped by category in the same order — still no snapshots.
 
 ### 4d. Items without a `product_url`
 

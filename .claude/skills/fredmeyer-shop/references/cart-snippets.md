@@ -68,14 +68,17 @@ Run after a click to list candidate cart endpoints, then combine with `chrome-de
   .slice(-10)
 ```
 
-## Snippet 5 — Replace the cart via fetch
+## Snippet 5 — Replace the cart via fetch (call once per category, in display order)
 
 `cartId` and the request shape come from step 4b. Substitute placeholders before running.
+
+Call this **once per category** in Phase 4c, passing the **cumulative** ordered item list each time — i.e. after category N, `items` holds every item from categories 1..N, in category display order. Because this endpoint *replaces* the whole cart, the cumulative array keeps the cart sorted (and the sequential calls give each category a later add-time). The final call therefore contains the complete order in preview order. Await each call before the next.
 
 ```javascript
 async () => {
   const cartId = 'YOUR_CART_ID';   // discovered fresh each session
   const items = [
+    // cumulative, in category display order:
     // {upc: 'XXXXXXXXXXXXX', qty: 1, name: 'optional label'}
   ];
 
