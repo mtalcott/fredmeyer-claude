@@ -15,6 +15,8 @@ Protein:
   ✓ Pasture-raised eggs (1 dozen)                 qty: 1   [every 14d, 54% of orders]
 Dairy / Alternatives:
   ✓ Vanilla oat milk (52 fl oz)                   qty: 5   [every 9d, 92% of orders (incl. substitutions)]
+Snacks / Sweets:
+  ✓ Special K Original cereal (12 oz)             qty: 1   [from Keep]
 Vegetables:
   ✓ Butterhead lettuce (9 oz)                     qty: 2   [every 12d, 73% of orders]
 Bread / Grains:
