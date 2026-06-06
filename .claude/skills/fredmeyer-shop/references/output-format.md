@@ -4,35 +4,45 @@ Templates for the prompts emitted by the `fredmeyer-shop` skill in Phases 2 and 
 
 ## Phase 2 — Suggested list
 
+The annotation in `[...]` is the **reason string** — built from the 1b stats so the
+number shown is the number that drove the suggestion. Patterns:
+
+- At-cadence buy: `[~7d cadence, last 18d ago — due]` / `[... — overdue]`
+- Confidence caveat: append `· irregular` for `erratic` items.
+- Abandoned (opt-in): `[~7d cadence, last 110d ago — haven't bought in a while]`
+- Sparse (opt-in): `[bought 2× · last Mar 10]` (no cadence — don't invent one).
+- Keep-sourced: `[from Keep]`. Substitution: `[→ substitution for previous]`.
+
 ```
 SUGGESTED SHOPPING LIST
 ========================
 
-── STAPLES (avg interval ≤ 17 days — already in your order) ──────────
+── DUE NOW (✓ already in your order) ─────────────────────────────────
 
 Protein:
-  ✓ Creamy peanut butter (16 oz)                  qty: 2   [every 7d, 87% of orders]
-  ✓ Pasture-raised eggs (1 dozen)                 qty: 1   [every 14d, 54% of orders]
+  ✓ Creamy peanut butter (16 oz)                  qty: 2   [~7d cadence, last 9d ago — due, 87% of orders]
+  ✓ Pasture-raised eggs (1 dozen)                 qty: 1   [~14d cadence, last 16d ago — overdue, 54% of orders]
 Dairy / Alternatives:
-  ✓ Vanilla oat milk (52 fl oz)                   qty: 5   [every 9d, 92% of orders (incl. substitutions)]
+  ✓ Vanilla oat milk (52 fl oz)                   qty: 5   [~9d cadence, last 11d ago — due, 92% of orders (incl. substitutions)]
 Snacks / Sweets:
   ✓ Special K Original cereal (12 oz)             qty: 1   [from Keep]
 Vegetables:
-  ✓ Butterhead lettuce (9 oz)                     qty: 2   [every 12d, 73% of orders]
+  ✓ Butterhead lettuce (9 oz)                     qty: 2   [~12d cadence, last 14d ago — due, 73% of orders]
 Bread / Grains:
-  ✓ Whole-grain sandwich bread                    qty: 1   [every 15d, 61% of orders]
+  ✓ Whole-grain sandwich bread                    qty: 1   [~15d cadence, last 20d ago — overdue, 61% of orders]
 
-── INFREQUENT — add any you're running low on ────────────────────────
+── MAYBE — add any you're running low on (·) ─────────────────────────
 
-Personal Care (last bought):
-  · Body wash (18 fl oz)                          Mar 16
-  · Body wash, alternate brand (18 fl oz)         Mar 15   [→ substitution for previous]
-Paper / Household:
-  · Diaper-pail refill bags                       Mar 1
 Protein:
-  · Extra-firm tofu                               Mar 10
+  · Extra-firm tofu                               [~7d cadence, last 31d ago — haven't bought in a while]
+  · Foster Farms chicken (per lb)                 [~7d cadence, last 19d ago · irregular]
+Personal Care:
+  · Body wash (18 fl oz)                          [bought 2× · last Mar 16]
+  · Body wash, alternate brand (18 fl oz)         [bought 1× · last Mar 15 → substitution for previous]
+Paper / Household:
+  · Diaper-pail refill bags                       [bought 1× · last Mar 1]
 Beverages:
-  · Prebiotic soda                                Mar 17
+  · Prebiotic soda                                [bought 2× · last Mar 17]
 ```
 
 After printing the list, ask:

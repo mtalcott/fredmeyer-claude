@@ -23,6 +23,7 @@ Read these once before starting:
 - `references/cart-snippets.md` — JS snippets for cart-API discovery, replace-cart fetch, product status, DOM add-to-cart, and cart verification.
 - `references/categories.md` — keyword tables used to classify items.
 - `references/output-format.md` — exact templates for the suggested-list and final-order prompts.
+- `scripts/stats.py` — run in Phase 1b to compute per-item recency/cadence/due-score (no need to read it; just run it).
 
 ---
 
@@ -35,22 +36,54 @@ Read `fred-meyer-purchases.csv`. Parse each row into:
 
 ### 1b. Compute per-item statistics
 
-Group rows by `upc` (fall back to `item_name` if upc is `unknown`). Determine `total_orders` (the number of distinct orders in the CSV). For each unique item compute:
+Run the stats helper rather than computing by hand — it does the arithmetic over
+all ~280 items deterministically and reproducibly:
 
-| Stat | Definition |
+```
+python3 .claude/skills/fredmeyer-shop/scripts/stats.py --today <YYYY-MM-DD>
+```
+
+Use today's date for `--today` (omit to default to the system date). Add `--json`
+for structured output. The script groups rows by `upc` (falling back to
+`item_name` when upc is `unknown`), counts distinct order dates as `total_orders`,
+and emits per item:
+
+| Field | Meaning |
 |------|------------|
-| `last_purchased` | Most recent `date` |
-| `purchase_count` | Number of distinct orders the item appears in |
-| `order_participation_rate` | `purchase_count / total_orders × 100` (round to 1 decimal) |
-| `avg_interval_days` | If `purchase_count ≥ 2`: `(last_purchased − first_purchased) / (purchase_count − 1)` in days. Otherwise `null`. |
-| `avg_qty` | Mean `quantity` across all rows (round up to nearest integer) |
-| `typical_qty` | Most common `quantity` value (mode); fall back to `avg_qty` |
-| `category` | Inferred from `item_name` per `references/categories.md` |
-| `replacement_for` | UPC of the item this may be substituting for (see 1c) |
+| `purchase_count` | distinct orders the item appears in |
+| `participation_pct` | `purchase_count / total_orders × 100` |
+| `last_purchased`, `days_since_last` | recency |
+| `median_interval` | **median** of consecutive purchase intervals (only when `purchase_count ≥ 3`). Median, not mean — so one adoption/abandonment gap doesn't distort the cadence. |
+| `interval_cv` / `erratic` | interval variability; `erratic` flags an unreliable cadence (CV > 0.6) |
+| `due_ratio` | `days_since_last / median_interval` — how far into its cycle the item is (only when `purchase_count ≥ 3`) |
+| `state` | `recent` (due_ratio < 0.5), `due`, `OVERDUE` (> 1.3), or `insufficient` (< 3 purchases) |
+| `typical_qty` | mode of historical quantity (raw — preference caps are applied later, see "Standing preferences") |
+| `weight_based` | item is sold by weight (qty is a weight, e.g. bananas) |
 
-**Frequency classification** (from `avg_interval_days`):
-- **Staple** — `avg_interval_days ≤ 17` (roughly weekly or biweekly).
-- **Infrequent** — `avg_interval_days > 17`, or `purchase_count == 1`.
+`category` (per `references/categories.md`) and `replacement_for` (per 1c) are not
+in the script output — infer those yourself from `item_name`.
+
+**How to read the signals — this is the prediction logic that replaces the old
+single-threshold rule:**
+
+- **`due` / `OVERDUE` with a moderate ratio (~1–3):** at or just past its usual
+  cadence — include by default.
+- **Very high `due_ratio` (≳ 3–4):** the item is likely **abandoned**, not merely
+  due (bought regularly for a while, then nothing for many cycles — `days_since_last`
+  dwarfs the cadence). Do **not** auto-include these; surface them opt-in
+  ("haven't bought this in a while — still want it?"). This is the abandoned-staple
+  trap the old `avg_interval ≤ 17d` gate fell into.
+- **`recent`:** bought within half a cycle — suppress; don't re-suggest something
+  just purchased.
+- **`erratic`:** noisy cadence — offer opt-in rather than auto-include, even if `due`.
+- **`insufficient` (< 3 purchases — ~73% of items):** no reliable cadence. Don't
+  fabricate one. Treat as infrequent/opt-in ordered by recency, and lean on the
+  Google Keep list (1d) and the user's own additions for intent.
+- **`weight_based`:** `typical_qty` is a count of units (bunches/each), not a
+  weight — relevant to quantity caps (e.g. bananas).
+
+There is **no hard staple/infrequent threshold** anymore. Present items with their
+evidence and let due-state plus standing preferences drive inclusion.
 
 ### 1c. Replacement detection
 
@@ -58,7 +91,7 @@ Identify likely substitutions so the same logical item under different brands is
 
 1. For any two item groups whose `item_name` values share ≥ 2 significant words (ignoring brand, size, and filler like "organic", "oz", "fl", "pack"), flag them as related.
 2. Among related pairs, the item with fewer purchases is likely a replacement for the one with more. Set its `replacement_for` to the more-frequent item's UPC.
-3. When computing `order_participation_rate` for the more-frequent item, also count orders where its replacement appeared. Annotate with `(incl. substitutions)` if replacements were found.
+3. When reading `participation_pct` for the more-frequent item, also count orders where its replacement appeared. Annotate with `(incl. substitutions)` if replacements were found.
 
 ### 1d. Merge the Google Keep grocery list
 
@@ -87,15 +120,40 @@ Keep grocery note and merge its Fred Meyer items in as additional candidate line
 CSV or from a Phase 4d search result. An item that resolves to neither is reported
 as unresolved in Phase 5 — it is never guessed into the cart.
 
-User preferences (e.g. banana caps, decaf-only, brand switches) live in user
-memory and apply automatically during resolution and quantity reasoning — do not
-hard-code them here.
+### Standing preferences (applied at this layer, by judgment)
+
+Standing user preferences — quantity caps (e.g. bananas ≤ 2 bunches), brand
+switches (prefer the cheaper brand and suppress the old one), and the like — live
+in user memory and apply automatically during resolution and quantity reasoning.
+Do not hard-code them here.
+
+**Precedence when signals conflict:** standing preference > your judgment > the
+deterministic `due_ratio`/stats. A preference always wins over the script's
+numbers — a qty cap overrides `typical_qty`; a brand switch suppresses the old
+UPC even when it shows `OVERDUE`.
+
+**Do not persist one-off edits.** Removing an item or changing a quantity for a
+single run is *not* a standing preference — never write it to memory. Persist a
+new preference only when the user signals it should stick ("always", "from now
+on", "remember", "we've switched"). One-off removals stay one-off, so the
+assistant never silently suppresses something the user still wants.
 
 ---
 
 ## Phase 2: Build the suggested shopping list
 
-Render the suggested list using the template in `references/output-format.md` — staples (✓, included by default) and infrequent items (·, opt-in) in a single prompt, grouped by category.
+Render the suggested list using the template in `references/output-format.md`,
+grouped by category, in a single prompt. Inclusion follows the 1b due-state, not a
+frequency threshold:
+
+- **Included by default (✓):** items that are `due`/`OVERDUE` with a moderate
+  ratio and not `erratic` — the reliable, at-cadence buys.
+- **Opt-in (·):** `insufficient`-data items, `erratic` items, and likely-abandoned
+  ones (very high `due_ratio`). `recent` items are suppressed (omitted unless the
+  user asks).
+
+Every suggested line carries a one-line reason built from the real numbers (see
+`references/output-format.md`) so the user can see *why* it's there.
 
 Keep-sourced items (from 1d) appear in the list annotated `[from Keep]`, included
 by default (✓), and show the matched **product name + size** so the user can catch
