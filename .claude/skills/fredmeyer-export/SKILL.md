@@ -76,7 +76,7 @@ The extractor writes CSV rows to `localStorage['fm_' + ID]` and returns the row 
 
 Run the read-back snippet (snippet 4 in `references/extract-snippets.md`). It returns `{ orderId: "csv_rows" }` for every accumulated key and clears them.
 
-Write each order's rows to `/tmp/fm-order-{ID}.csv`.
+Write each order's rows to `.tmp/fm-order-{ID}.csv` (the project-local temp dir; create it with `mkdir -p .tmp` first). It's gitignored — keeping temp files in-project means a single Write/Bash approval covers the whole run instead of one per `/tmp` write.
 
 ---
 
@@ -92,7 +92,7 @@ Append the newly processed order IDs to `fred-meyer-processed-orders.txt`, one p
 
 ### Step 8 — Clean up and report
 
-Remove the temp files (`rm -f /tmp/fm-order-*.csv`) and summarize:
+Remove the temp files (`rm -f .tmp/fm-order-*.csv`) and summarize:
 
 - Date range covered (oldest → newest)
 - Number of new orders processed (and how many were skipped as already-processed)

@@ -2,5 +2,8 @@
 fred-meyer-purchases.csv
 fred-meyer-processed-orders.txt
 
+# Project-local temp dir for skill intermediates
+.tmp/
+
 # Local Claude Code permissions (personal)
 .claude/settings.local.json

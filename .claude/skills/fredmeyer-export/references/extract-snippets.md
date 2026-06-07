@@ -120,13 +120,13 @@ Run once after every order has been processed. Returns `{ orderId: "csv_rows_str
 
 ## Snippet 5 — Python merge + sort
 
-Run after writing all `/tmp/fm-order-*.csv` files. Use Python (not bash `sort`) so quoted CSV fields are handled correctly.
+Run after writing all `.tmp/fm-order-*.csv` files. Use Python (not bash `sort`) so quoted CSV fields are handled correctly.
 
 ```python
 import csv, io, glob
 
 all_rows = []
-for path in glob.glob('/tmp/fm-order-*.csv'):
+for path in glob.glob('.tmp/fm-order-*.csv'):
     with open(path) as f:
         for line in f:
             line = line.strip()
