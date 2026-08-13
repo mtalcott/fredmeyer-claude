@@ -20,12 +20,20 @@ Design notes (see the 5-agent investigation that motivated this):
     as a soft display hint.
   * A coefficient-of-variation flag marks erratic items so the skill can offer
     them opt-in rather than auto-include.
+  * Cadence (median_interval/interval_cv/due_ratio) prefers the last
+    WINDOW_DAYS of purchases over full history: an item that ramped up
+    irregularly when first adopted but has since settled into a steady
+    weekly buy would otherwise show a permanently inflated CV from that
+    early ramp-up, misclassifying a real staple as "erratic". When an item
+    has fewer than MIN_PURCHASES dates inside the window (e.g. it hasn't
+    been bought recently at all), cadence falls back to full history so
+    "haven't bought in a while" detection for abandoned items still works.
 
 Usage:
-  python3 stats.py [--csv PATH] [--today YYYY-MM-DD] [--json]
+  python3 stats.py [--csv PATH] [--today YYYY-MM-DD] [--window-days N] [--json]
 
 Default --csv is fred-meyer-purchases.csv in the current directory; default
---today is the system date.
+--today is the system date; default --window-days is 60.
 """
 import argparse
 import csv
@@ -40,6 +48,7 @@ JUST_BOUGHT = 0.5   # below this: bought too recently to re-suggest
 OVERDUE = 1.3       # above this: past its usual cadence
 ERRATIC_CV = 0.6    # interval CV above this: cadence is unreliable
 MIN_PURCHASES = 3   # need >=3 buys (>=2 intervals) for a due_ratio
+WINDOW_DAYS = 60    # cadence prefers purchases within this many days of --today
 
 
 def parse_qty(raw):
@@ -66,8 +75,9 @@ def load(csv_path):
     return rows
 
 
-def compute(rows, today):
+def compute(rows, today, window_days=WINDOW_DAYS):
     total_orders = len({r["_date"] for r in rows})
+    window_start = today - dt.timedelta(days=window_days)
 
     groups = defaultdict(list)
     for r in rows:
@@ -81,7 +91,14 @@ def compute(rows, today):
         last = dates[-1]
         days_since = (today - last).days
 
-        intervals = [(dates[i + 1] - dates[i]).days for i in range(len(dates) - 1)]
+        # Prefer recent-window dates for cadence; fall back to full history
+        # when the window doesn't have enough purchases to be trustworthy
+        # (this keeps "haven't bought in a while" working for items with no
+        # recent purchases at all, instead of just going "insufficient").
+        window_dates = [d for d in dates if d >= window_start]
+        cadence_dates = window_dates if len(window_dates) >= MIN_PURCHASES else dates
+
+        intervals = [(cadence_dates[i + 1] - cadence_dates[i]).days for i in range(len(cadence_dates) - 1)]
         median_int = statistics.median(intervals) if intervals else None
         cv = (statistics.pstdev(intervals) / statistics.mean(intervals)
               if len(intervals) >= 2 and statistics.mean(intervals) else None)
@@ -166,12 +183,14 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--csv", default="fred-meyer-purchases.csv")
     ap.add_argument("--today", default=None, help="reference date YYYY-MM-DD (default: system today)")
+    ap.add_argument("--window-days", type=int, default=WINDOW_DAYS,
+                     help=f"cadence window in days (default: {WINDOW_DAYS})")
     ap.add_argument("--json", action="store_true", help="emit JSON instead of a text table")
     args = ap.parse_args()
 
     today = parse_date(args.today) if args.today else dt.date.today()
     rows = load(args.csv)
-    total_orders, items = compute(rows, today)
+    total_orders, items = compute(rows, today, args.window_days)
 
     if args.json:
         print(json.dumps({"today": today.isoformat(), "total_orders": total_orders, "items": items}, indent=2))

@@ -68,7 +68,7 @@ If no orders appear on a page that should have orders, retry up to 5 times — R
 For each order URL:
 
 1. Navigate to the detail page with `chrome-devtools:navigate_page`.
-2. Run the item extractor (snippet 3 in `references/extract-snippets.md`), substituting `DATE`, `TYPE`, and `ID` with the order's values.
+2. Run the item extractor (snippet 3 in `references/extract-snippets.md`), substituting `DATE` and `ID` with the order's values (order type is auto-detected from the detail-page heading).
 
 The extractor writes CSV rows to `localStorage['fm_' + ID]` and returns the row count only — item data stays out of context. Items without `/p/` links (fee lines like "Bev Excise") are skipped automatically.
 
@@ -84,7 +84,7 @@ Write each order's rows to `.tmp/fm-order-{ID}.csv` (the project-local temp dir;
 
 ### Step 6 — Merge and sort with Python
 
-Run the merge script (snippet 5 in `references/extract-snippets.md`). Python (not bash `sort`) handles CSV-quoted fields correctly. The script sorts by date descending then item name ascending, and writes `fred-meyer-purchases.csv` with the header row.
+Run the merge script (snippet 5 in `references/extract-snippets.md`). Python (not bash `sort`) handles CSV-quoted fields correctly. The script is **cumulative**: it loads the existing `fred-meyer-purchases.csv`, layers the freshly-crawled temp rows on top (deduping by `(date, upc, item_name)` so a re-crawl replaces rather than duplicates), then sorts by date descending and item name ascending and writes the full history back with the header row. It never discards previously-exported orders — `fredmeyer-shop` relies on the complete 3-month history for cadence analysis.
 
 ### Step 7 — Record processed order IDs
 
@@ -96,8 +96,8 @@ Remove the temp files (`rm -f .tmp/fm-order-*.csv`) and summarize:
 
 - Date range covered (oldest → newest)
 - Number of new orders processed (and how many were skipped as already-processed)
-- Number of unique UPCs
-- Total rows written
+- Number of unique UPCs (across the full cumulative CSV)
+- Total rows in `fred-meyer-purchases.csv` (cumulative), and how many were newly added this run
 - Output path: `fred-meyer-purchases.csv`
 
 ---

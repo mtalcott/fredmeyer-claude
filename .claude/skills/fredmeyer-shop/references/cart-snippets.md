@@ -2,14 +2,19 @@
 
 JavaScript snippets used in Phase 4 of the `fredmeyer-shop` skill. Pass them to `chrome-devtools:evaluate_script`.
 
-## Cart endpoint (discovered 2026-04-04)
+## Cart endpoint (discovered 2026-04-04, verified 2026-06-27, corrected 2026-07-18)
 
-`PUT /atlas/v1/carts/{cartId}` replaces the entire cart. The body is `{ lineItems: [...] }`. The response contains `data.carts.lineItemCount` and `data.carts.versionKey`.
+`PUT /atlas/v1/carts/{cartId}` **merges/upserts, it does not replace the cart.** (Earlier notes said "replaces the entire cart" — confirmed wrong on 2026-07-18: a PUT with a lineItems array missing a previously-added gtin13 left that item in the cart.) The body is `{ lineItems: [...] }`. The response contains `data.carts.lineItemCount` and `data.carts.versionKey`.
 
-The cart ID is **session-specific** and must be discovered fresh each run. Two ways to find it:
+Each lineItem keeps the `created` timestamp from when it was **first** added; a later PUT that resends the same `gtin13` only bumps `modified`/`quantity`, it does not move the item. This matters for Phase 4c's category-ordering trick: an item added once (e.g. during cart-ID discovery in 4b) stays pinned at its original position even if it's resent later inside its proper category batch. **Pick the discovery item from category 1** (the first category in display order) so this doesn't put something out of place; if that's not possible, expect that one item to sit out of order and mention it in the Phase 5 report.
 
-- Add one item via DOM click (snippet 3) and inspect the resulting PUT request — its URL contains the cart ID.
-- `GET /atlas/v1/carts` may return `data.carts[0].id`, but can be empty.
+There is no known way to remove or reorder a line item via this endpoint: `quantity: 0` returns **400**, and `DELETE /atlas/v1/carts/{cartId}/line-items/{id}` returns **404** (both tried 2026-07-18). If an item needs to come out, the user has to remove it in the UI.
+
+The cart ID is **session-specific** and must be discovered fresh each run. Best method:
+
+- Add one item via DOM click (snippet 3), wait ~2s, then read `performance.getEntriesByType('resource')` filtered to `.includes('carts')` — the entry with the full cart ID appears as `/atlas/v1/carts/{cartId}`.
+
+Fallback / verification: `GET /atlas/v1/carts` needs an `x-kroger-channel: WEB` header or it 400s with `MISSING_CHANNEL` (this, not flakiness, is why earlier notes saw 400s). With the header it reliably returns `data.carts[0].lineItems` — use this to verify the final cart contents (see snippet 8) rather than scraping the `/cart` page DOM, which also renders "Buy it Again" / recommendation carousels using the same product-card markup and will over-match.
 
 ---
 
@@ -68,11 +73,11 @@ Run after a click to list candidate cart endpoints, then combine with `chrome-de
   .slice(-10)
 ```
 
-## Snippet 5 — Replace the cart via fetch (call once per category, in display order)
+## Snippet 5 — Add items via fetch (call once per category, in display order)
 
 `cartId` and the request shape come from step 4b. Substitute placeholders before running.
 
-Call this **once per category** in Phase 4c, passing the **cumulative** ordered item list each time — i.e. after category N, `items` holds every item from categories 1..N, in category display order. Because this endpoint *replaces* the whole cart, the cumulative array keeps the cart sorted (and the sequential calls give each category a later add-time). The final call therefore contains the complete order in preview order. Await each call before the next.
+Call this **once per category** in Phase 4c, passing the **cumulative** ordered item list each time — i.e. after category N, `items` holds every item from categories 1..N, in category display order. This endpoint *upserts* (see the endpoint note above): resending an already-added gtin13 is harmless and just refreshes `modified`, it doesn't move the item. What actually keeps the cart sorted is that each category's items get their `created` timestamp on the call where they're *first* introduced, and the calls run in category order — so later categories end up with later `created` times. Await each call before the next.
 
 ```javascript
 async () => {
@@ -125,9 +130,17 @@ Navigate to `https://www.fredmeyer.com/search?query={url-encoded-name}` first.
 })
 ```
 
-## Snippet 8 — Cart item names (after navigating to /cart)
+## Snippet 8 — Cart contents (authoritative, no navigation needed)
+
+The old DOM-scraping approach (`[data-testid*="cart-item"] h2`) no longer matches anything, and the more permissive `a[href*="/p/"]` / `[data-testid="cart-page-item-description"]` selectors over-match: the `/cart` page renders "Buy it Again" and other recommendation carousels with the same product-card markup, so a scrape returns 100+ names instead of the real line-item count. Use the cart-list endpoint instead (needs the `x-kroger-channel` header — see endpoint note above):
 
 ```javascript
-() => [...document.querySelectorAll('[data-testid*="cart-item"] h2, [class*="CartItem"] h2')]
-  .map(h => h.innerText.trim())
+async () => {
+  const resp = await fetch('/atlas/v1/carts', { credentials: 'include', headers: {'accept':'application/json', 'x-kroger-channel':'WEB'} });
+  const data = await resp.json();
+  const cart = data.data.carts[0];
+  return { lineItemCount: cart.lineItemCount, items: cart.lineItems.map(li => ({gtin13: li.gtin13, qty: li.quantity})) };
+}
 ```
+
+Compare `items` against the expected `{upc, qty}` list built in Phase 4c to confirm every item and quantity landed correctly.

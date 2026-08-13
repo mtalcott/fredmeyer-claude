@@ -77,23 +77,36 @@ If `opened` is false, use the paste fallback (snippet 4).
 With the note open, return the **unchecked** rows in document order, each with its
 indent level (top-level vs. subitem). Checked/completed items are skipped. Keep
 opens notes as a full-page editor (URL `#LIST/...`), not a dialog, and the grid
-cards stay in the DOM behind it — so scope to the open note's container by finding
-its title element and climbing to the ancestor that holds the checkboxes. Pass the
-note title in lowercase.
+cards stay in the DOM behind it — **including a truncated preview card of the
+same note**, which also has a title element matching the note title. Scoping by
+"find the title element, climb to an ancestor with checkboxes" is unreliable: if
+`querySelectorAll` happens to return the grid-card title before the open editor's
+title (DOM order isn't guaranteed to favor the editor), the climb lands on a
+grid container that mixes in checkboxes from other notes entirely — confirmed
+2026-08-13, where this returned 40 rows blended from ~6 unrelated notes instead
+of the true 2 unchecked items in a single note.
+
+**Robust scope-finding:** every note — each grid card *and* the open editor —
+has exactly one "Background options" button. Climb from each to the nearest
+ancestor with more than a handful of checkboxes, then take the one with the
+**highest** checkbox count. The open editor always shows the complete note
+(unchecked + checked), so it strictly dominates any grid card's truncated
+preview or other notes' containers.
 
 ```javascript
 async () => {
-  const title = 'groceries'; // configured note title, lowercased
-  const titleEl = Array.from(document.querySelectorAll('[contenteditable="true"], [role="textbox"]'))
-    .find(e => (e.innerText || e.getAttribute('aria-label') || '').trim().toLowerCase().startsWith(title));
-  let scope = document;
-  if (titleEl) {
-    let node = titleEl;
-    for (let i = 0; i < 12 && node; i++) {
-      if (node.querySelectorAll && node.querySelectorAll('[role="checkbox"]').length > 3) { scope = node; break; }
+  const bgBtns = [...document.querySelectorAll('[aria-label="Background options"]')];
+  let scope = null, bestCount = 0;
+  for (const btn of bgBtns) {
+    let node = btn.parentElement;
+    for (let i = 0; i < 8 && node; i++) {
+      const cb = node.querySelectorAll ? node.querySelectorAll('[role="checkbox"]').length : 0;
+      if (cb > 5) { if (cb > bestCount) { bestCount = cb; scope = node; } break; }
       node = node.parentElement;
     }
   }
+  if (!scope) return { count: 0, rows: [] };
+
   const boxes = Array.from(scope.querySelectorAll('[role="checkbox"]'))
     .filter(b => b.getAttribute('aria-checked') === 'false');
   const rows = [];
@@ -107,9 +120,14 @@ async () => {
     const indent = parseInt(getComputedStyle(row).marginLeft, 10) || 0;
     rows.push({ text, level: indent >= 12 ? 1 : 0 });
   }
-  return { count: rows.length, rows };
+  return { count: rows.length, rows, scopeCheckboxTotal: bestCount };
 }
 ```
+
+Sanity check: `scopeCheckboxTotal` should roughly equal unchecked + checked items
+in the note (visible in Keep's UI as an unchecked count plus a "N checked items"
+toggle). If it's wildly higher than that sum, the scope is still wrong — fall
+back to the paste fallback (snippet 4) rather than trust the result.
 
 The order and `level` are what the section rules below depend on, so preserve
 them. Item data stays small; it is fine to return inline.

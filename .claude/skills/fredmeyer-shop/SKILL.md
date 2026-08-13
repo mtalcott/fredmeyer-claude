@@ -20,7 +20,7 @@ Read these once before starting:
 
 - `../_shared/chrome-devtools-tips.md` — patterns this skill depends on (`chrome-devtools:evaluate_script` over `take_snapshot`, React render waits).
 - `references/keep-snippets.md` — JS snippets for reading the user's Google Keep grocery note, the store-section rules, and quantity parsing.
-- `references/cart-snippets.md` — JS snippets for cart-API discovery, replace-cart fetch, product status, DOM add-to-cart, and cart verification.
+- `references/cart-snippets.md` — JS snippets for cart-API discovery, the upsert-cart fetch, product status, DOM add-to-cart, and cart verification.
 - `references/categories.md` — keyword tables used to classify items.
 - `references/output-format.md` — exact templates for the suggested-list and final-order prompts.
 - `scripts/stats.py` — run in Phase 1b to compute per-item recency/cadence/due-score (no need to read it; just run it).
@@ -205,10 +205,12 @@ The cart should display items in the **same category order the user previewed** 
 With `cart_api` known:
 
 1. Group the final order's items by `category` and order the groups by the Phase 2 category display order. Within each category, keep the Phase 2 row order.
-2. Add the categories **sequentially**, one cart call per category (snippet 5 in `references/cart-snippets.md`), waiting for each to return before starting the next so the categories get distinct, increasing add-times. Snippet 5 takes the **cumulative** ordered item list (all categories added so far, in order) so the cart array stays sorted regardless of whether Fred Meyer renders the cart by array order or by add-time.
+2. Add the categories **sequentially**, one cart call per category (snippet 5 in `references/cart-snippets.md`), waiting for each to return before starting the next so the categories get distinct, increasing `created` timestamps. Snippet 5 takes the **cumulative** ordered item list (all categories added so far, in order) — see the endpoint note in `cart-snippets.md`: the PUT upserts rather than replacing, and each item's cart position is fixed by the timestamp of its *first* add, so the cumulative resends of earlier categories are harmless no-ops for ordering.
 3. Items go in as `{upc, qty}` pairs. Every `upc` must be a real `gtin13` from the CSV or a Phase 4d search result — never a guessed value.
 
-**Iteration direction — confirm once per environment in 4e:** if the cart shows the **most recently added item at the top**, iterate categories in **reverse** display order (add Other first, Protein last) so the first display category ends up on top; if it shows newest at the **bottom**, iterate in forward display order. Default to forward; if 4e shows the order inverted, re-run with the categories reversed.
+**Iteration direction (confirmed 2026-07-19): the cart displays the most recently added item at the top.** Iterate categories in **reverse** display order — add Other first, ..., Protein last — so Protein (the first display category) ends up on top and Other ends up at the bottom, matching the Phase 2/3 preview. (A 2026-07-18 run defaulted to forward order and produced a visibly reversed cart — Condiments at top, Protein near the bottom — confirming this.)
+
+**The 4b discovery item is a special case:** it gets added before any category batch, so it's pinned above everything added in this run regardless of iteration direction. Do the 4b discovery add using an item from **whichever category will be added *last*** in your reverse-order sequence (i.e. a Protein item, since Protein categorically goes last under the reverse-order rule) so the discovery item's pinned position coincides with where it would've landed anyway. If that's not practical, just note the one out-of-place item in the Phase 5 report — it's cosmetic, not a data error.
 
 If the cart API cannot be discovered (no clear POST captured), fall back to per-item navigate + DOM add (snippets 2 + 3), still visiting items grouped by category in the same order — still no snapshots.
 
@@ -223,7 +225,7 @@ with a guessed UPC.
 
 ### 4e. Verify the cart
 
-Run snippet 7 (cart count, no navigation) or navigate to `https://www.fredmeyer.com/cart` and run snippet 8 (cart item names) to confirm.
+Run snippet 8 in `references/cart-snippets.md` — an authoritated `GET /atlas/v1/carts` fetch (needs the `x-kroger-channel: WEB` header) that returns the real `{gtin13, quantity}` line items. Compare against the expected list from 4c. Don't scrape the `/cart` page DOM for this: it also renders "Buy it Again"-style recommendation carousels using the same product-card markup, so a naive selector over-matches (100+ names instead of the true line-item count).
 
 ---
 
